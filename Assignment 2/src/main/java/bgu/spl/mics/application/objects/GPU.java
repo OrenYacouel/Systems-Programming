@@ -1,9 +1,11 @@
 package bgu.spl.mics.application.objects;
 
-import bgu.spl.mics.application.services.GPUService;
+import bgu.spl.mics.Future;
 
+import java.util.Deque;
+import java.util.LinkedList;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Passive object representing a single GPU.
@@ -11,188 +13,182 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Add fields and methods to this class as you see fit (including public methods and constructors).
  */
 public class GPU {
+
     /**
      * Enum representing the type of the GPU.
      */
     public enum Type {RTX3090, RTX2080, GTX1080}
-
-    private Type type;
-    private Model currModel; // the model the GPU is currently working on.  (null for none)
-    private Cluster cluster; // a pointer to the singleton compute cluster
-    private int numOfBatchesLeft;
-    private GPUService service;
-    private final int ticksToTrainData;
-    private AtomicInteger floatingBatches = new AtomicInteger(0);
-    private AtomicInteger processingTicks = new AtomicInteger(0);
-    private AtomicInteger ticksSinceTrainingBatchStarted = new AtomicInteger(0);
-    private ConcurrentLinkedQueue<Model> unProModels; //im not sure if we need this
-    private ConcurrentLinkedQueue <DataBatch> disk;
-    private ConcurrentLinkedQueue <DataBatch> VRAM; //processed batches
-    private int VRAMCap;
+    boolean isAvailable;
+    int id;
+    private final Type type;
+    Model model;
+    Cluster cluster;
+    private int trainedDataCounter;
+    private int gpuWorkTime;
+    private final LinkedList<DataBatch> processedDataBatches;
+    private final LinkedList<DataBatch> unprocessedDataBatches;
+    private Future<Model> result;
 
 
-//    constructor
-    public GPU(Type _type){
-        type = _type;
-        currModel = null;
-        cluster = Cluster.getInstance();
-        unProModels = new ConcurrentLinkedQueue<Model>();
-        disk = new ConcurrentLinkedQueue <DataBatch>();
-        VRAM = new ConcurrentLinkedQueue <>();
-        numOfBatchesLeft = 0;
+    public GPU(Type _type, int _id) {
+        isAvailable = true;
+        this.id = _id;
+        this.cluster = Cluster.getInstance();
+        this.type = _type;
+        this.gpuWorkTime = 0;
+        trainedDataCounter = 0;
+        processedDataBatches = new LinkedList<>();
+        unprocessedDataBatches = new LinkedList<>();
+        cluster.addGPUToList(id);
+    }
 
-//      init VRAM capacity according to type
-        if (type == Type.RTX3090) {
-            VRAMCap = 32;
-            ticksToTrainData = 1;
-        }
-        else if (type == Type.RTX2080) {
-            VRAMCap = 16;
-            ticksToTrainData = 2;
-        }
-        else // if (type == Type.GTX1080)
-        {
-            VRAMCap = 18;
-            ticksToTrainData = 4;
+    /** Organize data in data batches
+     * @PRE model.data.size() > 0
+     * @Post: unprocessed_data_counter * 1000 == model.data.size()
+     */
+    public void prepBatches(Model _model) {
+        this.model = _model;
+        for(int i = 1; i < model.getData().getSize(); i= i+1000){
+            DataBatch dataBatch = new DataBatch(i, i+1000, model.getData().getType(), id);
+            unprocessedDataBatches.add(dataBatch);
         }
     }
 
-    public boolean areThereBatchesToProcess(){
-        return !disk.isEmpty() ;
-    }
-    public float getNumOfBatchesLeft(){
-        return (float)numOfBatchesLeft;
-    }
-
-    public void tickAction(){
-        if ( currStatus() == Model.Status.TRAINING ){
-            cluster.incrementNumGpuTimeUsed();
-            processingTicks.getAndIncrement();
-            ticksSinceTrainingBatchStarted.getAndIncrement();
-            float ModelDataSizeInBatches = this.currModel.getData().getDataSize()/1000;
-            //if the model is at 90% trained we will do case 2
-            if (getNumOfBatchesLeft() / ModelDataSizeInBatches <= 0.1) {
-                if (shouldAviramSendBatch() && disk.size() > 0) {
-                    for (int i = 0; i < 2; i++) {
-                        cluster.receiveUnProBatchCase2(sendUnProBatch());
-                    }
-                }
-            }
-            //else, we will just add the batches to unProBatches3 .
-            else {
-                if (shouldAviramSendBatch() && disk.size() > 0) {
-                    for (int i = 0; i < 2; i++) {
-                        cluster.receiveUnProBatchCase3(sendUnProBatch());
-                    }
-                }
-            }
-            if (ticksSinceTrainingBatchStarted.get() == ticksToTrainData && !VRAM.isEmpty()){
-                finishBatchTraining();
-            }
-            while ((VRAMCap - VRAM.size() > 0) && cluster.canGiveToGPU(this)) {
-                receiveBatch(cluster.sendProBatch(this));
-            }
-            if( VRAM.isEmpty() && !areThereBatchesToProcess() && floatingBatches.get() == 0 ) {
-                currModel.setStatus(Model.Status.TRAINED);
-                System.out.println("finished model training" + currModel.getName());
-                cluster.getNamesModelsTrained().add(currModel.getName());
-            }
+    /** send data batches to cluster
+     * @PRE VRAM capacity >= batches
+     * @Post: unprocessed_data_counter == @pre(unprocessed_data_counter - batches)
+     */
+    public void sendDataBatches(int numOfBatches) {
+        int counter = 0;
+        while (counter < numOfBatches && !unprocessedDataBatches.isEmpty() ) {
+            //make sure i can add
+            cluster.getUnprocessedDataQueue().add(unprocessedDataBatches.poll());
+            counter++;
         }
     }
 
+    /** receive batches from cluster
+     * @PRE VRAM capacity >= processedData.size()
+     * @Post: processedData.size() == @pre(processedData.size()+ 1)
+     */
+    public void takeProcessedDataBatch(int difference) {
+        while (difference > 0 && !cluster.getGpuQueueMap().get(this.id).isEmpty()) {
+            DataBatch addMe = cluster.getGpuQueueMap().get(this.id).poll();
+            this.processedDataBatches.add(addMe);
+            difference -- ;
+        }
+    }
 
+    public int trainTime() {
+        int output;
+        if (type == Type.RTX3090)
+            output = 1;
+        else if (type == Type.RTX2080)
+            output = 2;
+        else
+            output = 4;
+        return output;
+    }
+
+    public int VRAMCapacity(){
+        int capacity;
+        if(type == Type.RTX3090)
+            capacity = 32;
+        else if(type == Type.RTX2080)
+            capacity = 16;
+        else
+            capacity = 8;
+        return capacity;
+    }
+
+    public LinkedList<DataBatch> getUnprocessedDataBatches() {
+        return unprocessedDataBatches;
+    }
+
+    public LinkedList<DataBatch> getProcessedDataBatches() {
+        return processedDataBatches;
+    }
 
     /**
-     * this func takes the data of the model, and divides it into batches and keeps it in the disk
+     * first send of data to cluster.  send max unprocessed
+     * create future to be resolved when all db's have been processed
+     * initialize private future result = new ...
+     * return result;
+     * @PRE: model.getStatus() == PreTrained
+     * @POST: getUnprocessedDataBatches()-- (this.VRAMCapacity)
+     * @POST: future was created for training the model process
      */
-    public void batchMaker(){
-        Data data = currModel.getData();
-        int numOfSamples = data.getDataSize();
-        int i = 0;
-        while( i < numOfSamples) {
-            DataBatch batch = new DataBatch(data, i);
-            disk.add(batch);
-            numOfBatchesLeft++;
-            i +=1000;
-        }
-    }
-    public void prepareAndSendFirstBatches(){
-        if ( !unProModels.isEmpty() || currModel.getStatus() == Model.Status.PRETRAINED ){
-            if ( currModel.getStatus() == Model.Status.TRAINED ) {
-                setCurrModel(getUnProModels().poll());
-            }
-            floatingBatches = new AtomicInteger(0);;//we reset the sent Batches for each model
-            float ModelDataSizeInBatches = this.currModel.getData().getDataSize()/1000;
-            this.currModel.setStatus(Model.Status.TRAINING);
-            this.cluster.getDataSources().put(this,currModel.getData()); // adds the data-gpu to the cluster's map
-            batchMaker(); //adds the batches to the GPU's disk
-            for (int i = 0; i < 2; i++){ //sends 2 batches
-                this.cluster.receiveUnProBatchCase1(sendUnProBatch());
-            }
-        }
+
+    public Future<Model> initialClusterTransfer (){
+        model.setStatus(Model.Status.Training);
+        result = new Future<>();
+        this.sendDataBatches(getUnprocessedDataBatches().size());
+        return result;
     }
 
-    public boolean doesAviramHaveFreeSpace(){
-        return ( VRAMCap - VRAM.size() > 0 );
+    public void trainData(){
+        trainedDataCounter++;
     }
-    public boolean shouldAviramSendBatch(){ return VRAMCap - floatingBatches.get() - VRAM.size() > 0;}
-    /**
-     * sends a batch of unprocessed data to the cluster
-     * @pre disk.size() != 0
-     * @return disk.dequeue()
-     */
-    public DataBatch sendUnProBatches(Model model) {
-        if( !disk.isEmpty() )
-            return disk.poll();
-        else return null;
+
+    public Model getModel() {
+        return model;
+    }
+
+    public int getId() {return id;}
+
+    public int getTrainedDataCounter() {
+        return trainedDataCounter;
     }
     /**
-     * @pre vramCap > 0
-     * @param batch - get processed batch from the cluster
-     *  place it in VRAM (if it has capacity) and update stats
+     * Called upon completion of data training
+     * change status of model to TRAINED, change status of DATA TO PROCESSED
+     * Resolves the future of trainModelEvent
+     * Returns the trainedDataCounter to 0 for the upcoming trainModelEvent
+     * @PRE : all data batches were processed and trained
+     * @Post: Model's status updated to Trained
+     * @Post: future has been resolved
+     * @Post: trainedDataCounter set back to 0 for next Model
      */
-    public void receiveBatch(DataBatch batch){
-        if(doesAviramHaveFreeSpace()) {
-            VRAM.add(batch);
-            floatingBatches.getAndDecrement();
-        }
+    public void completeTraining(){
+        model.setStatus(Model.Status.Trained);
+        model.getData().setProcessedStatus(true);
+        result.resolve(model);
+        trainedDataCounter = 0 ;
+        isAvailable = true;
     }
+
     /**
-     *
-     * @after the batch will be trained
+     * test the Model
+     * @PRE: model.getStatus() == Trained
+     * @Post: result is not null
+     * @Post: model.getStatus() == Tested
      */
-    public void finishBatchTraining(){
-        VRAM.remove();
-        ticksSinceTrainingBatchStarted = new AtomicInteger(0);
-        numOfBatchesLeft--;
+
+    public void testModel(Model model, Student.Degree degree){
+        double prob = Math.random();
+        if((prob < 0.6 & degree == Student.Degree.MSc) | (prob < 0.8 & degree== Student.Degree.PhD) )
+            model.setResult(Model.Result.Good);
+
+        else{
+            model.setResult(Model.Result.Bad);
+        }
+        model.setStatus(Model.Status.Tested);
     }
 
-    public DataBatch sendUnProBatch() {
-            floatingBatches.getAndIncrement();
-            return disk.poll();
+    public int getGpuWorkTime() {
+        return gpuWorkTime;
     }
 
-    public int numOfUntrainedBatches() {return this.VRAM.size();}
-    public Model.Status currStatus (){
-        if(currModel == null)
-            return null;
-        return currModel.getStatus();
+    public void upGpuWorkTime(int capacity) {
+        this.gpuWorkTime += capacity;
     }
-
-//  setters
-    public void setCurrModel(Model currModel) {
-        this.currModel = currModel;
-    }
-
-//  getters
-    public Cluster getCluster(){return this.cluster;}
-    public ConcurrentLinkedQueue <DataBatch> getVRAM(){ return VRAM;}
-    public ConcurrentLinkedQueue<Model> getUnProModels() {
-        return unProModels;
-    }
-    public Model getCurrModel() {
-        if (currModel == null)
-            return null;
-        return currModel;
+    public synchronized boolean tryToReserve() {
+        if (isAvailable) {
+            isAvailable = false;
+            return true;
+        }
+        else{
+            return false;
+        }
     }
 }

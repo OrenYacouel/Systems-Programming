@@ -1,72 +1,82 @@
-//package bgu.spl.mics.application.objects;
-//
-//import junit.framework.TestCase;
-//import org.junit.After;
-//import org.junit.Before;
-//import org.junit.Test;
-//
-//import java.util.LinkedList;
-//import java.util.Queue;
-//
-//public class CPUTest extends TestCase {
-//    private static CPU cpu;
-//    private static Cluster cluster;
-//
-//    @Before
-//    public void setUp() throws Exception {
-//        super.setUp();
-//        cpu = new CPU(5);
-//    }
-//
-//    @After
-//    public void tearDown() throws Exception {
-//    }
-//
-//    @Test
-//    public void testTick() {
-//        //        really depends on implementation of fields and communication with CPU service- haven't reached this part
-//    }
-//
-//    @Test
-//    public void testRequestNewUnprocessedBatch() {
-////        Queue<DataBatch> queue = new LinkedList<DataBatch>();
-////        DataBatch batch = null;
-////
-////        //No batch to send to the CPU yet
-////        assertEquals( cpu.requestNewUnprocessedBatch(), null );
-////
-////        batch = new DataBatch( new Data(Data.Type.TABULAR), 7);
-////        cluster.receiveUnProBatch(batch);
-////        assertEquals(cpu.requestNewUnprocessedBatch(), batch); //the CPU should receive the batch
-//    }
-//
-//    @Test
-//    public void testProcessBatch() {
-//        int numOfProcessing = cpu.getNumOfProcessing();
-//        DataBatch batch = new DataBatch(new Data(Data.Type.TABULAR), 7);
-//        assertFalse( numOfProcessing == numOfProcessing + 1 ); //we haven't processed the batch yet
-//
-//        cpu.processBatch( batch );
-//        assertTrue( numOfProcessing == numOfProcessing + 1 ); //we have processed the batch.
-//    }
-//
-//    @Test
-//    public void testFinalizeProcess() {
-//        DataBatch batch = new DataBatch( new Data(Data.Type.TABULAR), 7);
-//        assertFalse( batch.isProcessed() ); ///we haven't finalized the batch yet
-//
-//        cpu.finalizeProcess( batch );
-//        assertFalse( batch.isProcessed() ); //we have finalized the batch
-//    }
-//
-//    @Test
-//    public void testSendProcessedBatch() {
-//        DataBatch batch = new DataBatch( new Data(Data.Type.TABULAR), 7);
-//        Cluster cluster = null;
-//
-//        assertFalse(cluster.getNumOfProcessedBatch() == cluster.getNumOfProcessedBatch() + 1); // we have not sent the processed Batch yet
-//
-//        cpu.sendProcessedBatch(batch);
-//        assertTrue(cluster.getNumOfProcessedBatch() == cluster.getNumOfProcessedBatch() + 1); // we have sent the processed Batch
-//    }
-//}
+package bgu.spl.mics.application.objects;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+
+
+class CPUTest {
+    private CPU cpu;
+    private Cluster cluster;
+    private DataBatch dbToProcess;
+
+
+    @BeforeEach
+    void setUp() {
+        cpu = new CPU(32, 0);
+        dbToProcess = new DataBatch(1000, 1, Data.Type.Images, 0);
+        cluster = Cluster.getInstance();
+    }
+
+    @AfterEach
+    void tearDown() {
+        dbToProcess = null;
+        cpu.is_available = true;
+    }
+
+    @Test
+    void process() {
+        //PRE
+        assertNotEquals(dbToProcess, null);
+        assertFalse(dbToProcess.isProcessed);
+        int prevProcessedCounter = cpu.batchesProcessed;
+        //act
+        cpu.process();
+        //POST
+        assertEquals(cpu.batchesProcessed - 1, prevProcessedCounter);
+    }
+
+    @Test
+    void takeDataBatchesFromCluster() {
+        //PRE
+        assertTrue(cpu.is_available);
+        assertNull(dbToProcess);
+        assertFalse(cluster.getUnprocessedDataQueue().isEmpty());
+        int prevClusterDataListSize = cluster.getUnprocessedDataQueue().size();
+        //act
+        cpu.takeDataBatchesFromCluster();
+        //POST
+        assertFalse(cpu.isAvailable());
+        assertNotEquals(dbToProcess, null);
+        assertEquals(cluster.getUnprocessedDataQueue().size() - 1, prevClusterDataListSize);
+    }
+
+    @Test
+    void returnProcessedDataToCluster() {
+        //PRE
+        assertTrue(dbToProcess.isProcessed);
+        //act
+        int prevGpuDataListSize = cluster.getGpuQueueMap().get(dbToProcess.gpuID).size();
+        cpu.returnProcessedDataToCluster(dbToProcess);
+        //POST
+        assertNull(dbToProcess);
+        assertTrue(cpu.isAvailable());
+        assertEquals(cluster.getGpuQueueMap().get(dbToProcess.gpuID).size() - 1, prevGpuDataListSize);
+    }
+
+
+    @Test
+    void getCpuTimeUsed() {
+    }
+
+    @Test
+    void upCpuWorkTime() {
+        //PRE
+        int prevWorkTime = cpu.getCpuTimeUsed();
+        //act
+        cpu.upCpuWorkTime(1);
+        //POST
+        assertEquals(cpu.getCpuTimeUsed() - 1, prevWorkTime);
+    }
+}

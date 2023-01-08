@@ -1,8 +1,10 @@
 package bgu.spl.mics;
 
-import bgu.spl.mics.application.objects.Model;
+import bgu.spl.mics.example.messages.ExampleBroadcast;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * The message-bus is a shared object used for communication between
@@ -21,6 +23,9 @@ public interface MessageBus {
      * @param <T>  The type of the result expected by the completed event.
      * @param type The type to subscribe to,
      * @param m    The subscribing micro-service.
+     * @PRE m.register() performed
+     * @PRE m.subscribeEvent() not performed
+     * @Post: @pre(event_to_MS_Map.get(type).size() +1 ) == event_to_MS_Map.size()
      */
     <T> void subscribeEvent(Class<? extends Event<T>> type, MicroService m);
 
@@ -29,6 +34,9 @@ public interface MessageBus {
      * <p>
      * @param type 	The type to subscribe to.
      * @param m    	The subscribing micro-service.
+     * @PRE m.register() performed
+     * @PRE m.subscribeBroadcast() not performed
+     * @Post: @pre(broadcast_to_MS_Map.get(type).size() +1 ) == event_to_MS_Map.size()
      */
     void subscribeBroadcast(Class<? extends Broadcast> type, MicroService m);
 
@@ -41,9 +49,9 @@ public interface MessageBus {
      * @param <T>    The type of the result expected by the completed event.
      * @param e      The completed event.
      * @param result The resolved result of the completed event.
-     * @pre f.get() == null
-     * @post f.get() != null
-     * @post if @pre f.get() != null, do nothing
+     * @PRE e appears on event_to_MS_Map
+     * @Post: future.resolve(result)
+     *
      */
     <T> void complete(Event<T> e, T result);
 
@@ -52,6 +60,9 @@ public interface MessageBus {
      * micro-services subscribed to {@code b.getClass()}.
      * <p>
      * @param b 	The message to added to the queues.
+     * @PRE b is in messageBus message list
+     * @Post: @pre(broadcast_to_MS_Map.get(b).size() +1) == (broadcast_to_MS_Map.get(b).size()
+     *
      */
     void sendBroadcast(Broadcast b);
 
@@ -64,6 +75,9 @@ public interface MessageBus {
      * @param e     	The event to add to the queue.
      * @return {@link Future<T>} object to be resolved once the processing is complete,
      * 	       null in case no micro-service has subscribed to {@code e.getClass()}.
+     *
+     * @PRE b is in messageBus event list
+     * @Post: @pre(event_to_MS_Map.get(b).size() +1) == (event_to_MS_Map.get(b).size()
      */
     <T> Future<T> sendEvent(Event<T> e);
 
@@ -71,6 +85,8 @@ public interface MessageBus {
      * Allocates a message-queue for the {@link MicroService} {@code m}.
      * <p>
      * @param m the micro-service to create a queue for.
+     * @PRE micro_service_Message_Queues.get(m) == false
+     * @Post: micro_service_Message_Queues.get(m) succeeds
      */
     void register(MicroService m);
 
@@ -81,8 +97,13 @@ public interface MessageBus {
      * registered, nothing should happen.
      * <p>
      * @param m the micro-service to unregister.
+     * @PRE micro_service_Message_Queues.get(m) succeeds
+     * @Post: event_to_MS_Map.get(m)-1 == @pre(event_to_MS_Map.get(m))
+     * @Post: broadcast_to_MS_Map.get(m)-1 == @pre(broadcast_to_MS_Map.get(m))
+     * @Post: micro_service_Message_Queues.get(m) - 1 == @pre(micro_service_Message_Queues.get(m))
      */
     void unregister(MicroService m);
+
 
     /**
      * Using this method, a <b>registered</b> micro-service can take message
@@ -98,15 +119,38 @@ public interface MessageBus {
      * @return The next message in the {@code m}'s queue (blocking).
      * @throws InterruptedException if interrupted while waiting for a message
      *                              to became available.
+     * @PRE m.isRegistered()
+     * @PRE ms_message_Queues.get(m).take() is not empty (message is available)
+     * @Post: ms_message_Queues.get(m).size() -1 == @pre(ms_message_Queues.get(m).size())
      */
     Message awaitMessage(MicroService m) throws InterruptedException;
 
-    boolean isRegistered( MicroService m1);//need to write params and shit
+    /**
+     *
+     * @param microServiceEvent
+     * @param aClass
+     * @return boolean statement if microservice is registered to broadcast type
+     */
+    boolean isMSSubscribedToBroadcast(MicroService microServiceEvent, Class<? extends ExampleBroadcast> aClass);
 
-    public boolean isSubscribedBroadcast(Class<? extends Broadcast> broadcast, MicroService m) ;
-    boolean isSubscribedEvent(Class<? extends Event> type, MicroService m);//changed the signature from Event<T> to Event
+    /**
+     *
+     * @param microService
+     * @param event_class
+     * @return boolean statement if microservice is registered to event type
+     */
+    boolean isMSSubscribedToEvent(MicroService microService, Class<? extends Event> event_class);
 
-    public void setEventToFutureMap(Model model);
-    public ConcurrentHashMap<Event, Future> getEventToFutureMap();
+    /**
+     *
+     * @param microService
+     * @return boolean statement if microservice is registered to microbus
+     */
+    boolean isMicroServiceRegistered (MicroService microService);
 
+
+    ConcurrentHashMap<MicroService, LinkedBlockingQueue<Message>> getMs_MessageQueues();
+    ConcurrentHashMap<Class<? extends Event>, ConcurrentLinkedQueue<MicroService>> getMs_EventMap();
+    ConcurrentHashMap<Class<? extends Broadcast>, ConcurrentLinkedQueue<MicroService>> getMs_BroadcastMap();
+    ConcurrentHashMap<Event<?>, Future> getFutureMap();
     }

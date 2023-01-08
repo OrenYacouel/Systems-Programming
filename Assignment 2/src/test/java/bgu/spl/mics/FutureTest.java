@@ -1,58 +1,66 @@
 package bgu.spl.mics;
 
-import junit.framework.TestCase;
-import org.junit.Test;
-//import sun.jvm.hotspot.tools.JStack;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.TimeUnit;
 
-public class FutureTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.*;
+
+class FutureTest {
+
+    // initialize all data members required to run tests
     private Future<String> future;
-    private Future<String> future2;
-    private String result;
 
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp() {
         future = new Future<>();
-        result = "hi";
-    }
-
-    public void tearDown() throws Exception {}
-
-
-    @Test
-    public void testGet() {
-        String goat = "Messi";
-        assertFalse(future.isDone());
-        future.resolve(goat);
-        assertTrue(future.get().equals(goat));
     }
 
     @Test
-    public void testResolve() {
+    void testGet() {
+        // check PRE
         assertFalse(future.isDone());
-        String argentina = "Veron";
-        future.resolve(argentina);
-        assertTrue(future.get().equals(argentina));
-        assertTrue(future.isDone());
-    }
-
-
-    @Test
-    public void testIsDone() {
-        assertFalse(future.isDone());
-        String japan = "Kubu";
-        future.resolve(japan);
+        // MS waits for completion
+        future.resolve("result");
+        // retrieve result
+        future.get();
+        // check POST
         assertTrue(future.isDone());
     }
 
     @Test
-    public void testTestGet() {
-        String brazil = "FatRonaldo";
-        assertFalse(future.isDone());
-        future.get(90, TimeUnit.MILLISECONDS);
-        assertFalse(future.isDone());
-        future.resolve(brazil);
-        assertTrue(future.get(50, TimeUnit.SECONDS).equals(brazil));
+    void testResolve() {
+        assertNull(future.get());
+        //completion of operation
+        String _resolve = "result";
+        future.resolve(_resolve);
+        //check
+        assertTrue(future.isDone());
+        assertEquals(_resolve, future.get());
+    }
 
+    @Test
+    void testIsDone() {
+        String _resolve ="result";
+        //check unresolved
+        assertFalse(future.isDone());
+        future.resolve(_resolve);
+        //check resolve action
+        assertTrue(future.isDone());
+    }
+
+    @Test
+    void testGetWithTimeout() throws InterruptedException {
+        //check pre
+        assertFalse(future.isDone());
+        String _resolve = "result";
+        future.get(50, TimeUnit.MILLISECONDS);
+        //return null if time expired and unresolved
+        assertNull(future.get());
+        future.resolve(_resolve);
+        //check future is resolved
+        assertEquals(future.get(50, TimeUnit.MILLISECONDS), _resolve);
     }
 }

@@ -1,8 +1,6 @@
 package bgu.spl.mics.application.objects;
-
 import bgu.spl.mics.application.services.CPUService;
 
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Passive object representing a single CPU.
@@ -10,94 +8,108 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Add fields and methods to this class as you see fit (including public methods and constructors).
  */
 public class CPU {
-    private int cores; // number of cores.
-    private DataBatch currBatch; //the data the cpu currently processing
-    private Cluster cluster; //  a pointer to the signleton compute cluster
-    private CPUService service;
-    private boolean isProcessing;
-    private AtomicInteger ticksSinceStartedProcessing = new AtomicInteger(0);
-    private int ticksToProcessBatch;
+
+    private int id;
+    private final int cores;
+    private DataBatch dataToProcess;
+    private final Cluster cluster;
+    boolean is_available;
+    int batchesProcessed;
+    int cpuTimeUsed;
 
 
-    public CPU( int _cores ) {
-        cores = _cores;
-        currBatch = null;
-        cluster = Cluster.getInstance();
-        isProcessing = false;
+    public CPU(int _cores,int _id){
+        this.id = id;
+        this.dataToProcess = null;
+        this.cores = _cores;
+        this.cluster = Cluster.getInstance();
+        this.is_available = true;
+        this.batchesProcessed = 0;
+        this.cpuTimeUsed = 0;
+        cluster.addCPUToVector(this);
     }
 
+    /**
+    @PRE : !data.isEmpty()
+    @Post: each data is processed && process all from start -> end && become is_available again
+    */
+    public void process(){
+        dataToProcess.isProcessed = true;
+        batchesProcessed++ ;
+        this.returnProcessedDataToCluster(dataToProcess);
+    }
 
     /**
-     * This function receives a dataBatch from the cluster
-     * @param batch is a DataBatch received from the cluster.
-     * @pre {@param batch} != null && {@param batch}.isProcessed == false
-     * @post
+
+     @PRE: CPU.isAvailable()
+     @PRE: this.data.isEmpty()
+     @PRE: !cluster.getInstance().getUnprocessedDataQueue().isEmpty()
+     @Post: cluster.getInstance().newData == cluster.getInstance().data && !CPU.isAvailable()
      */
-    public void receiveBatch(DataBatch batch){
-        if (batch != null) {
-            currBatch = batch;
-            setProcessing(true); //maybe already true- we don't care
-            if (batch.data.getType() == Data.Type.IMAGES)
-                ticksToProcessBatch = (32 / cores) * 4;
-            else if (batch.data.getType() == Data.Type.TEXT)
-                ticksToProcessBatch = (32 / cores) * 2;
-            else if (batch.data.getType() == Data.Type.TABULAR)
-                ticksToProcessBatch = (32 / cores) * 1;
-            ticksSinceStartedProcessing = new AtomicInteger(0);//resets this ticks counter
+    public void takeDataBatchesFromCluster() {
+        if (isAvailable() && !cluster.getUnprocessedDataQueue().isEmpty()) {
+            dataToProcess = cluster.getUnprocessedDataQueue().poll();
         }
     }
 
     /**
-     * This function takes a dataBatch and updated his status to processed and updates statistics.
-     * currBatch is a DataBatch with status == unprocessed.
-     * @pre {@param batch} != null &&{@param batch}.isProcessed == false
-     * @post {@param batch}.isProcessed == true
+     * @param  processedData : list of now processed dataBatches
+     @PRE: this.data.isProcessed
+     @Post: cluster.getInstance().processedDataDeque.size() == cluster.getInstance().processedDataDeque.size() + 1 && CPU.isAvailable()
+     @Post: this.data.isEmpty()
+     @Post: this.isAvailable()
      */
-    public void finalizeProcess(){
-        currBatch.process();
-        isProcessing = false;
-        sendProcessedBatch(currBatch); //sends this batch to the cluster
+    void returnProcessedDataToCluster(DataBatch processedData){
+        int gpuID = processedData.gpuID;
+        cluster.getGpuQueueMap().get(gpuID).add(processedData);
+        dataToProcess = null;
+        this.is_available = true;
     }
 
     /**
-     * This function sends a dataBatch from the CPU to the cluster.
-     * @param batch is a DataBatch sent from the CPU to the cluster.
-     * @pre {@param batch} != null && {@param batch}.isProcessed == true
-     * @post cluster.getNumProcessedBatch = @pre(cluster.getNumProcessedBatch) + 1
+     * @PRE : currently not performing process
+     * @Inv :
+     * @Post: after finishing process, is available again
+     *
+     * @return
      */
-    public void sendProcessedBatch(DataBatch batch){
-        cluster.receiveProBatch(currBatch);
+    public boolean isAvailable(){
+        return is_available && dataToProcess == null;
     }
 
-    public void incrementTicksSinceStartedProcessing(){
-        ticksSinceStartedProcessing.getAndIncrement();
-    }
-//    questions
-    public boolean isProcessing(){
-        return isProcessing;
-    }
-
-//    setter
-
-    public void setProcessing(boolean processing) {
-        isProcessing = processing;
-    }
-
-//    getters
-    public Cluster getCluster() {
-        return cluster;
+    /**
+     * @param  type : the type of data batches in this Deque
+     */
+    public int processDataTime(Data.Type type) {
+        int output;
+        if (type == Data.Type.Images) {
+            output = (32 / cores) * 4;
+        }
+        else if (type == Data.Type.Text) {
+            output = (32 / cores) * 2;
+        }
+        else { // Type == Tabular
+            output = (32 / cores);
+        }
+        return output;
     }
 
-    public AtomicInteger getTicksSinceStartedProcessing() {
-        return ticksSinceStartedProcessing;
+    public DataBatch getDataToProcess() {
+        return dataToProcess;
     }
 
-    public int getTicksToProcessBatch() {
-        return ticksToProcessBatch;
+    public void setAsNotAvailable(){
+        this.is_available = false;
     }
 
-    public DataBatch getBatch() {
-        return currBatch;
+    public int getBatchesProcessed() {
+        return batchesProcessed;
+    }
+    public int getCpuTimeUsed() {
+        return cpuTimeUsed;
+    }
+
+    public void upCpuWorkTime(int capacity) {
+        this.cpuTimeUsed += capacity;
     }
 }
-

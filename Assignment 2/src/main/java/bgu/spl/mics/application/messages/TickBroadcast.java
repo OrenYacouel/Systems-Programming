@@ -3,13 +3,11 @@ package bgu.spl.mics.application.messages;
 import bgu.spl.mics.Broadcast;
 
 public class TickBroadcast implements Broadcast {
-    int tickId;
+    private String name ="TickBroadcast";
 
-    public TickBroadcast(int _TickId){
-        tickId = _TickId;
-    }
+    public TickBroadcast(){}
 
-    public int getId(){
-        return tickId;
+    public String getName(){
+        return name;
     }
 }

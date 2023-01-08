@@ -1,84 +1,115 @@
-//package bgu.spl.mics.application.objects;
-//
-//
-////import jdk.internal.org.jline.reader.UserInterruptException;
-//import junit.framework.TestCase;
-//import org.junit.Test;
-//public class GPUTest extends TestCase {
-//    private static GPU gpu;
-//    private static Model model;
-//    private static Cluster cluster;
-//    private static Data image;
-//    private static DataBatch proBatch;
-//    private static DataBatch unProBatch;
-//
-//
-//    public void setUp() throws Exception {
-//       model = new Model("Train", image, new Student("Oren", "Computer Science", Student.Degree.MSc), Model.Status.PRETRAINED, Model.Result.NONE);
-//       gpu = new GPU(GPU.Type.RTX3090);
-//       cluster = Cluster.getInstance();
-//       image = new Data(Data.Type.IMAGES);
-//       unProBatch = new DataBatch(image,0);
-//       proBatch = new DataBatch(image, 0);
-//       proBatch.process();
-//
-//    }
-//
-//    public void tearDown() throws Exception {
-//    }
-//
-//
-//    @Test
-//    public void testBatchMaker() {
-//        assertTrue(model.getData().getDataSize() > 0);
-//        int batched = gpu.numOfUnProBatchesInDisk();
-//        assertTrue(gpu.numOfUnProBatchesInDisk() == batched);
-//        gpu.batchMaker(image);
-//        assertFalse(gpu.numOfUnProBatchesInDisk() == batched);
-//    }
-//
-//    @Test
-//    public void testSendBatch() {
-////   try to send a batch of data without batchMake first - don't do anything
-//        gpu.sendUnProBatch();
-//        assertTrue("sendBatch put batches in disk",gpu.numOfUnProBatchesInDisk() == 0);
-//
-//        gpu.batchMaker(image);
-//        int numOfUnProBatchesInDisk = gpu.numOfUnProBatchesInDisk();
-//        gpu.sendUnProBatch();
-//        assertFalse("didn't remove batch from disk",gpu.numOfUnProBatchesInDisk() == numOfUnProBatchesInDisk);
-//    }
-//    @Test
-//    public void testReceiveBatch() {
-////      try to receive batch from cluster without cluster capable of sending
-//
-////        Assert.assertThrows(UserInterruptException.class, ()->gpu.receiveBatch(proBatch));
-//    }
-//
-//    @Test
-//    public void testTrainBatch() {
-//
-////      try to train a batch when there is no processed ones - do nothing
-//        gpu.finishBatchTraining(gpu.getVRAM().remove(0));
-//        assertTrue("VRAM isn't empty as expected",gpu.numOfUntrainedBatches() == 0);
-//
-////      train a batch and then check correct
-//        gpu.receiveBatch(proBatch);//instead of cluster sending proBatch
-//        int numOfProBatches = gpu.numOfUntrainedBatches();
-//        gpu.finishBatchTraining(gpu.getVRAM().remove(0));
-//        assertTrue("VRAM didn't remove proBatch or removed more than one",gpu.numOfUntrainedBatches() == numOfProBatches - 1);
-////
-//
-//    }
-//
-//    @Test
-//    public void testFinishedBatches() {
-////        really depends on implementation of fields and communication with cluster- haven't reached this part
-//    }
-//
-//    @Test
-//    public void testFinishedModel() {
-////        really depends on implementation of fields and communication with cluster- haven't reached this part
-//
-//    }
-//}
+package bgu.spl.mics.application.objects;
+
+import bgu.spl.mics.Future;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.ConcurrentLinkedDeque;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class GPUTest {
+
+    GPU.Type type = GPU.Type.RTX3090;
+    private GPU gpu;
+    DataBatch dataBatch;
+    Model model;
+    Data data;
+    Cluster cluster;
+    Future<Model> result;
+
+
+    @BeforeEach
+    void setUp() {
+    gpu = new GPU(type, 0);
+    dataBatch = new DataBatch(0, 1000, Data.Type.Images, 0);
+    data = new Data(Data.Type.Images, 100000 );
+    model = new Model("catovic", Data.Type.Images , 1000);
+    cluster = Cluster.getInstance();
+    }
+
+    @AfterEach
+    void tearDown() {
+    }
+
+    @Test
+    void testPrepBatches() {
+        // PRE
+        assertEquals(0, gpu.getTrainedDataCounter());
+        assertEquals(gpu.model.getStatus(), Model.Status.PreTrained);
+        assertTrue(gpu.getUnprocessedDataBatches().isEmpty());
+        // Act
+        gpu.prepBatches(gpu.model);
+        // POST
+        assertEquals(gpu.getUnprocessedDataBatches().size(), model.getData().getSize() / 1000);
+    }
+
+    @Test
+    void testSendDataBatches() {
+        // PRE
+        assertFalse(gpu.getUnprocessedDataBatches().isEmpty());
+        int gpuPrevUnprocessedSize = gpu.getUnprocessedDataBatches().size();
+        int clusterPrevUnprocessedSize = cluster.getUnprocessedDataQueue().size();
+        // Act
+        gpu.sendDataBatches(1);
+        // POST
+        assertEquals(gpuPrevUnprocessedSize - 1, gpu.getUnprocessedDataBatches().size());
+        assertEquals(cluster.getUnprocessedDataQueue().size() - 1, clusterPrevUnprocessedSize);
+    }
+
+    @Test
+    void takeProcessedDataBatch() {
+        // PRE
+        assertTrue(gpu.getProcessedDataBatches().size() < gpu.VRAMCapacity());
+        assertFalse(cluster.getGpuQueueMap().get(gpu.id).isEmpty());
+        int gpuPrevProcessedSize = gpu.getProcessedDataBatches().size();
+        int mineClusterPrevProcessedSize = cluster.getGpuQueueMap().get(gpu.id).size();
+        // Act
+        gpu.takeProcessedDataBatch(1);
+        // POST
+        assertEquals(gpu.getProcessedDataBatches().size() - 1 , gpuPrevProcessedSize);
+        assertEquals(cluster.getGpuQueueMap().get(gpu.id).size() - 1, mineClusterPrevProcessedSize);
+    }
+
+    @Test
+    void initialClusterTransfer() {
+        // PRE
+        assertEquals(gpu.model.getStatus(), Model.Status.PreTrained);
+        assertNull(result);
+        assertFalse(gpu.getUnprocessedDataBatches().isEmpty());
+        int prevUnprocessedBatches = gpu.getUnprocessedDataBatches().size();
+        int clusterPrevUnprocessedSize = cluster.getUnprocessedDataQueue().size();
+        // Act
+        gpu.initialClusterTransfer();
+        // POST
+        assertEquals(gpu.model.getStatus(), Model.Status.Training);
+        assertFalse(result.isDone());
+        assertEquals(cluster.getUnprocessedDataQueue().size() - gpu.VRAMCapacity(), clusterPrevUnprocessedSize);
+        assertEquals(gpu.getUnprocessedDataBatches().size() + gpu.VRAMCapacity(), prevUnprocessedBatches);
+    }
+
+    @Test
+    void completeTraining() {
+        // PRE
+        assertEquals(gpu.getTrainedDataCounter(), model.getData().getSize() / 1000);
+        // Act
+        gpu.completeTraining();
+        // POST
+        assertEquals(gpu.model.getStatus(), Model.Status.Trained);
+        assertEquals(gpu.getTrainedDataCounter(), 0);
+        assertTrue(result.isDone());
+
+    }
+
+    @Test
+    void testModel() {
+        // PRE
+        assertEquals(gpu.model.getStatus(), Model.Status.Trained);
+        // Act
+        gpu.testModel(model, Student.Degree.MSc);
+        // POST
+        assertEquals(model.getStatus(), Model.Status.Tested);
+        assertNotNull(result);
+    }
+}

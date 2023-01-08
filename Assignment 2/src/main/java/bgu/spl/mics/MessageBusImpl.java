@@ -1,15 +1,7 @@
 package bgu.spl.mics;
 
-import bgu.spl.mics.application.messages.TerminateBroadcast;
-import bgu.spl.mics.application.messages.TickBroadcast;
-import bgu.spl.mics.application.messages.TrainModelEvent;
-import bgu.spl.mics.application.objects.Model;
+import bgu.spl.mics.example.messages.ExampleBroadcast;
 
-import java.util.List;
-
-
-import java.util.*;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -20,212 +12,138 @@ import java.util.concurrent.LinkedBlockingQueue;
  * Only private fields and methods can be added to this class.
  */
 public class MessageBusImpl implements MessageBus {
+	private final ConcurrentHashMap<MicroService, LinkedBlockingQueue<Message>> ms_MessageQueues;
+	private final ConcurrentHashMap<Class<? extends Event>, ConcurrentLinkedQueue<MicroService>> ms_EventMap;
+	private final ConcurrentHashMap<Class<? extends Broadcast>, ConcurrentLinkedQueue<MicroService>> ms_BroadcastMap;
+	private final ConcurrentHashMap<Event<?>, Future> futureMap;
+	private final Object roundRobinLock = new Object();
 
-	private static class SingletonHolder{
-		private static MessageBusImpl instance = new MessageBusImpl();
+	private MessageBusImpl() {
+		ms_MessageQueues = new ConcurrentHashMap<>();
+		ms_EventMap = new ConcurrentHashMap<>();
+		ms_BroadcastMap = new ConcurrentHashMap<>();
+		futureMap = new ConcurrentHashMap<>();
 	}
 
-//	registration
-	private ConcurrentHashMap<MicroService, BlockingQueue<Message>> serviceToQueueMap;
-	private ConcurrentHashMap<MicroService, ArrayList<Class<? extends Message>>> serviceToMessageTypesMap;
-
-//	sending
-	private ConcurrentHashMap<Class<? extends Event>, ArrayList<MicroService>> eventSubscribers;
-	private ConcurrentHashMap<Class<? extends Broadcast>, ArrayList<MicroService>> broadcastSubscribers;
-
-//	future
-	private ConcurrentHashMap<Event, Future> eventToFutureMap;
-
-//	locks
-	Object serviceQueueLock, serviceMessageTypeLock, eventSubscribersLock, broadcastSubscribersLock, eventFutureLock;
-
-	private  MessageBusImpl(){
-		serviceToQueueMap = new ConcurrentHashMap <>();
-		serviceToMessageTypesMap = new ConcurrentHashMap <>();
-		eventSubscribers = new ConcurrentHashMap <>();
-		broadcastSubscribers =new ConcurrentHashMap <>();
-		eventToFutureMap = new ConcurrentHashMap<>();
-
-		serviceQueueLock = new Object();
-		serviceMessageTypeLock = new Object();
-		eventSubscribersLock = new Object();
-		broadcastSubscribersLock = new Object();
-		eventFutureLock = new Object();
+	// Initialization on demand holder
+	private static class MessageBusHolder {
+		private static final MessageBusImpl instance = new MessageBusImpl();
 	}
 
-	/**
-	 * Retrieves the single instance of this class.
-	 */
-	public static MessageBusImpl getInstance(){
-		return SingletonHolder.instance;
+	// Singleton implementation
+	public static MessageBus getInstance() {
+		return MessageBusHolder.instance;
 	}
-
 
 	@Override
 	public <T> void subscribeEvent(Class<? extends Event<T>> type, MicroService m) {
-//		synchronized (eventSubscribersLock) {
-			if (!this.isRegistered(m)) {
-				return; //if the MS is not registered it cannot subscribe to events
-			}
-			if( !eventSubscribers.containsKey(type)){ //checks if there are MS which are subscribed to this type of event
-				eventSubscribers.put(type, new ArrayList<MicroService>()); //in this case add new list
-			}
-			eventSubscribers.get(type).add(m);
-		//}
+		if(!ms_MessageQueues.containsKey(m))
+			throw new IllegalArgumentException("Microservice" + m.getName()+" is not registered");
+		synchronized (ms_EventMap){ // Prevent duplicate puts of same event type
+			if(!this.ms_EventMap.containsKey(type))
+				this.ms_EventMap.put(type, new ConcurrentLinkedQueue<>());
+		}
+		this.ms_EventMap.get(type).add(m);
+
 	}
 
 	@Override
 	public void subscribeBroadcast(Class<? extends Broadcast> type, MicroService m) {
-//		synchronized (broadcastSubscribersLock){
-			if(!this.isRegistered(m)) { //if the MS is not registered it cannot subscribe to broadcasts
-				return;
-			}
-			if(!broadcastSubscribers.containsKey(type)){ //checks if there are MS which are subscribed to this type of broadcast
-				broadcastSubscribers.put(type, new ArrayList<MicroService>()); //in this case add new list
-			}
-			broadcastSubscribers.get(type).add(m);
-		//}
+		if (!ms_MessageQueues.containsKey(m))
+			throw new IllegalArgumentException("Microservice " + m.getName() + " is not registered");
+		synchronized (ms_BroadcastMap) { // Prevent duplicate puts of same event type
+			if (!this.ms_BroadcastMap.containsKey(type))
+				this.ms_BroadcastMap.put(type, new ConcurrentLinkedQueue<>());
+			this.ms_BroadcastMap.get(type).add(m);
+		}
 	}
 
 	@Override
 	public <T> void complete(Event<T> e, T result) {
-		// we should take the future from the map and resolve it
-		//
-//		synchronized (eventToFutureMap){
-			Future <T> future = eventToFutureMap.get(e);
-			future.resolve(result);
-		//}
+		if(futureMap.containsKey(e))
+			futureMap.get(e).resolve(result);
 	}
 
 	@Override
 	public void sendBroadcast(Broadcast b) {
-		if( b instanceof TerminateBroadcast){
-//			List<MicroService> l = new ArrayList<MicroService>(serviceToMessageTypesMap.keySet());
-			List<MicroService> l = new ArrayList<MicroService>(serviceToQueueMap.keySet());
-			//TODO: or changed it at 16:00
-			for( MicroService m : l ){
-				m.terminate();
+		if(ms_BroadcastMap.get(b.getClass()) != null){
+			for(MicroService ms : ms_BroadcastMap.get(b.getClass())){
+				ms_MessageQueues.get(ms).add(b);
 			}
-		}
-		List<MicroService> subscribed;
-//		synchronized (broadcastSubscribersLock) {
-			if (broadcastSubscribers.containsKey(b.getClass()) && !broadcastSubscribers.get(b.getClass()).isEmpty()) { //checks there is a MS which subscribed to the event
-				subscribed = broadcastSubscribers.get(b.getClass()); //the list of the subscribed MS
-				synchronized (serviceQueueLock) {
-					for (MicroService m : subscribed) {
-						serviceToQueueMap.get(m).add(b); //adds to the queue of each MS the broadcast
-					}
-					serviceQueueLock.notifyAll();
-				//}
-				}
 		}
 	}
 
-	
 	@Override
 	public <T> Future<T> sendEvent(Event<T> e) {
-
-		List<MicroService> subscribed;
-		Future<T> future = new Future<T>();
-//		synchronized (eventSubscribersLock) {
-			if (eventSubscribers.containsKey(e.getClass()) && !eventSubscribers.get(e.getClass()).isEmpty()) {
-				subscribed = eventSubscribers.get(e.getClass()); //the list of the subscribed MS
-				MicroService m = subscribed.get(0); //the MS which is first in line
-//				synchronized (serviceToQueueMap) {
-				if(serviceToQueueMap.get(m)!= null ) //checks the queue of the MS exists
-					serviceToQueueMap.get(m).add(e); //adds to the first MS the event to the queue
-//					serviceQueueLock.notifyAll();
-//					synchronized (eventFutureLock) {
-						eventToFutureMap.put(e, future); //adds the future to the futures map
-					//}
-				//}
-				eventSubscribers.get(e.getClass()).remove(0); //removes the MS which got the event from the round-robin
-				eventSubscribers.get(e.getClass()).add(m); //adds the MS which got the event to the end of the round-robin
+		Future<T> future = null;
+		synchronized (roundRobinLock){
+			//Ensure round robin performed by correct order.  won't allow additional ms insertion
+			ConcurrentLinkedQueue<MicroService> eQueue = ms_EventMap.get(e.getClass());
+			if(eQueue != null && !eQueue.isEmpty()){
+				MicroService nextMS = eQueue.poll();
+				if(nextMS != null && !nextMS.hasBeenTerminated()){
+					future = new Future<>();
+					futureMap.put(e, future);
+					eQueue.add(nextMS); // return microservice to back of RoundRobin
+					ms_MessageQueues.get(nextMS).add(e); //
+				}
 			}
-		//}
+		}
 		return future;
 	}
 
 	@Override
 	public void register(MicroService m) {
-//		synchronized (serviceQueueLock){
-			serviceToQueueMap.put(m, new LinkedBlockingQueue<>());
-		//}
+		ms_MessageQueues.putIfAbsent(m, new LinkedBlockingQueue<>());
 	}
 
 	@Override
 	public void unregister(MicroService m) {
-//		synchronized (eventSubscribersLock){
-			for ( List l : eventSubscribers.values()) //deletes the MS from each event he subscribed to
-				l.remove(m);
-		//}
-//		synchronized (broadcastSubscribersLock){
-			for( List l : broadcastSubscribers.values()){ //deletes the MS from each broadcast he subscribed to
-				l.remove(m);
-			}
-		//}
-//		synchronized ( serviceQueueLock ){ //deletes the queue of the MS
-			serviceToQueueMap.remove(m);
-		//}
+		for(Class<? extends Event> e: ms_EventMap.keySet())
+			ms_EventMap.get(e).remove(m);
+
+		for(Class<? extends Broadcast> b : ms_BroadcastMap.keySet())
+			ms_BroadcastMap.get(b).remove(m);
+		ms_MessageQueues.remove(m);
 	}
 
 	@Override
 	public Message awaitMessage(MicroService m) throws InterruptedException {
-		BlockingQueue<Message> queue = null;
-		synchronized (this){
-			if( m == null || !this.isRegistered(m)){
-				System.out.println(m.getName() + " sent exception");
-				throw new IllegalArgumentException(); //TODO here it throws the illegal argument exception but its doesnt stop the program
-			}
-
-			queue = this.serviceToQueueMap.get(m);
+		if(!ms_MessageQueues.containsKey(m))
+			throw new IllegalArgumentException("Microservice "+ m.getName()+" is not registered");
+		try{
+			//blocking function
+			return ms_MessageQueues.get(m).take();
 		}
-
-		return queue.take();
-
-//		Message firstMsg = null;
-//		try{
-//			firstMsg = serviceToQueueMap.get(m).take();
-//		} catch (InterruptedException e){}
-//		return firstMsg;
-
-//		synchronized (serviceQueueLock){ //TODO i think we should delete all the synchronized cuz we used the concurrent HashMap
-//			synchronized(m) {
-//				while (serviceToQueueMap.get(m).isEmpty()) {
-//					m.wait();
-//				}
-//				return serviceToQueueMap.get(m).remove();
-//			}
-		}
-//	}
-
-
-	public boolean isRegistered( MicroService m) {
-		return (serviceToQueueMap.get(m) != null);
-	}
-
-	public boolean isSubscribedEvent(Class<? extends Event> type, MicroService m){
-		return (isRegistered(m)&& serviceToMessageTypesMap.get(m).contains(type)&& eventSubscribers.containsKey(type));
-	}
-
-	public boolean isSubscribedBroadcast(Class<? extends Broadcast> broadcast, MicroService m) {
-		return (isRegistered(m)&& serviceToMessageTypesMap.get(m).contains(broadcast.getClass())&& broadcastSubscribers.containsKey(broadcast.getClass()));
-	}
-
-	public void setEventToFutureMap(Model model){
-		List<Event> eventList = new ArrayList<Event>(eventToFutureMap.keySet());
-		int i=0;
-		while( i < eventList.size() ){
-			if( eventList.get(i) instanceof TrainModelEvent && ((TrainModelEvent) eventList.get(i)).getModel() == model){
-				complete(eventList.get(i), model);
-			}
-		i++;
+		catch (InterruptedException e){
+			throw e;
 		}
 	}
 
-//	GETTERS
+	public boolean isMSSubscribedToBroadcast(MicroService microService, Class<? extends ExampleBroadcast> broadcast_class) {
+		return ms_BroadcastMap.get(microService).contains(broadcast_class);
+	}
 
-	public ConcurrentHashMap<Event, Future> getEventToFutureMap() {
-		return eventToFutureMap;
+	public boolean isMSSubscribedToEvent(MicroService microService, Class<? extends Event> event_class){
+		return ms_EventMap.get(microService).contains(event_class);
+	}
+
+	public boolean isMicroServiceRegistered (MicroService microService){
+		return ms_MessageQueues.containsKey(microService);
+	}
+	public ConcurrentHashMap<MicroService, LinkedBlockingQueue<Message>> getMs_MessageQueues() {
+		return ms_MessageQueues;
+	}
+
+	public ConcurrentHashMap<Class<? extends Event>, ConcurrentLinkedQueue<MicroService>> getMs_EventMap() {
+		return ms_EventMap;
+	}
+
+	public ConcurrentHashMap<Class<? extends Broadcast>, ConcurrentLinkedQueue<MicroService>> getMs_BroadcastMap() {
+		return ms_BroadcastMap;
+	}
+
+	public ConcurrentHashMap<Event<?>, Future> getFutureMap() {
+		return futureMap;
 	}
 }

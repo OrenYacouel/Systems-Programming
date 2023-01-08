@@ -11,16 +11,16 @@ import java.util.concurrent.TimeUnit;
  * No public constructor is allowed except for the empty constructor.
  */
 public class Future<T> {
+
+	// added fields
 	private boolean isDone;
 	private T result;
 	
 	/**
 	 * This should be the the only public constructor in this class.
 	 */
-	public Future() {
-		result = null;
-		isDone = false;
-	}
+
+	public Future() {}
 	
 	/**
      * retrieves the result the Future object holds if it has been resolved.
@@ -28,37 +28,42 @@ public class Future<T> {
      * not been completed.
      * <p>
      * @return return the result of type T if it is available, if not wait until it is available.
-     *
+	 * @PRE this.isDone() == false
+	 * @Post: this.isDone() ==true
+     * 	       
      */
+
 	public synchronized T get() {
-		while(!isDone) {
-			try{
-				this.wait(); // wait until the future is done by another thread
-			}
-			catch ( InterruptedException e ) {}
+		while(!this.isDone) {
+			try {
+				wait();
+			} catch (InterruptedException ignored) {}
 		}
-		return result;
+		return this.result;
 	}
-	
+
 	/**
      * Resolves the result of this Future object.
-	 * @param result that has been calculated.
-	 * @pre this.result == null
-	 * @post this.result == result
+	 * @PRE this.isDone() == false
+	 * @PRE this.result == null
+	 * @Post: this.isDone()==true
+	 * @Post: this.result == result
      */
+
 	public synchronized void resolve (T result) {
-		isDone = true;
 		this.result = result;
+		isDone = true;
 		notifyAll();
 	}
 	
 	/**
      * @return true if this object has been resolved, false otherwise
      */
-	public synchronized boolean isDone() {
+
+	public boolean isDone() {
 		return isDone;
 	}
-	
+
 	/**
      * retrieves the result the Future object holds if it has been resolved,
      * This method is non-blocking, it has a limited amount of time determined
@@ -70,14 +75,13 @@ public class Future<T> {
      * 	       wait for {@code timeout} TimeUnits {@code unit}. If time has
      *         elapsed, return null.
      */
-	public T get(long timeout, TimeUnit unit) {
-		if( !isDone ){
-			try{
-				unit.timedWait(this,timeout);
-			}
-			catch( InterruptedException e ){}
+	public synchronized T get(long timeout, TimeUnit unit) {
+		while (!isDone) {
+			try {
+				wait(unit.convert(timeout,unit));
+				return result;
+			} catch (InterruptedException ignored) {}
 		}
 		return result;
 	}
-
 }

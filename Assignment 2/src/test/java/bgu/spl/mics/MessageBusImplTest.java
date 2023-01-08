@@ -1,190 +1,162 @@
 package bgu.spl.mics;
+import static org.junit.jupiter.api.Assertions.*;
 
-import bgu.spl.mics.application.objects.Student;
-import bgu.spl.mics.application.services.StudentService;
-import bgu.spl.mics.example.messages.*;
-import junit.framework.TestCase;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 
-public class MessageBusImplTest extends TestCase {
-    private MessageBusImpl magicBus;
-    private ExampleEvent event1;
-    private ExampleEvent event2;
-    private Broadcast broadcast1;
-    private Broadcast broadcast2;
-    private MicroService micro1;
-    private MicroService micro2;
-    private MicroService micro3;
+import bgu.spl.mics.example.messages.ExampleBroadcast;
+import bgu.spl.mics.example.messages.ExampleEvent;
+import bgu.spl.mics.example.services.ExampleBroadcastListenerService;
+import bgu.spl.mics.example.services.ExampleEventHandlerService;
+import bgu.spl.mics.example.services.ExampleMessageSenderService;
+import org.junit.jupiter.api.Test;
 
-    @Before
-    public void setUp() throws Exception {
-        magicBus = MessageBusImpl.getInstance();
+class MessageBusImplTest {
+
+    private MessageBus messageBus;
+    private MicroService microServiceMessage;
+    private MicroService microServiceEvent;
+    private MicroService microServiceBroadcast;
+    private ExampleBroadcast exampleBroadcast;
+    private ExampleEvent exampleEvent;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        // initialize all data members required to run tests
+        messageBus = MessageBusImpl.getInstance();
+        microServiceMessage = new ExampleMessageSenderService("sender", new String[1]);
+        microServiceEvent = new ExampleEventHandlerService("handler", new String[1]);
+        microServiceBroadcast = new ExampleBroadcastListenerService("listner", new String[1] );
+        exampleBroadcast = new ExampleBroadcast("broadcast");
+        exampleEvent = new ExampleEvent("event");
     }
 
-    @After
-    public void tearDown() throws Exception {
-    }
-
-    @Test
-    public void testSubscribeEvent() {
-        //1- can't subscribe an unregistered microservice
-        magicBus.subscribeEvent(event1.getClass(), micro1);
-        assertFalse(magicBus.isSubscribedEvent(event1.getClass(), micro1));
-        //2- successfully subscribe
-        magicBus.register(micro1);
-        magicBus.subscribeEvent(event1.getClass(), micro1);
-        assertTrue(magicBus.isSubscribedEvent(event1.getClass(), micro1));
-        //3- resubscribe
-        magicBus.subscribeEvent(event1.getClass(), micro1);
-        assertTrue(magicBus.isSubscribedEvent(event1.getClass(), micro1));
-        //4- subscribe to another event
-        magicBus.subscribeEvent(event2.getClass(), micro1);
-        assertTrue(magicBus.isSubscribedEvent(event2.getClass(), micro1));
-        assertTrue(magicBus.isSubscribedEvent(event2.getClass(), micro1));
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        messageBus.unregister(microServiceMessage);
+        messageBus.unregister(microServiceEvent);
+        messageBus.unregister(microServiceBroadcast);
     }
 
     @Test
-    public void testSubscribeBroadcast() {
-        //1- can't subscribe an unregistered microservice
-        magicBus.subscribeBroadcast(broadcast1.getClass(), micro1);
-        assertFalse(magicBus.isSubscribedBroadcast(broadcast1.getClass(), micro1));
-        //2- successfully subscribe
-        magicBus.register(micro1);
-        magicBus.subscribeBroadcast(broadcast1.getClass(), micro1);
-        assertTrue(magicBus.isSubscribedBroadcast(broadcast1.getClass(), micro1));
-        //3- resubscribe
-        magicBus.subscribeBroadcast(broadcast1.getClass(), micro1);
-        assertTrue(magicBus.isSubscribedBroadcast(broadcast1.getClass(), micro1));
-        //4- subscribe to another event
-        magicBus.subscribeBroadcast(broadcast2.getClass(), micro1);
-        assertTrue(magicBus.isSubscribedBroadcast(broadcast1.getClass(), micro1));
-        assertTrue(magicBus.isSubscribedBroadcast(broadcast2.getClass(), micro1));
+    void subscribeEvent() {
+        //pre
+        assertTrue(messageBus.isMicroServiceRegistered(microServiceEvent));
+        //action
+        int size = messageBus.getMs_EventMap().size();
+        messageBus.subscribeEvent(exampleEvent.getClass(), microServiceEvent);
+        //post
+        assertEquals(size +1,messageBus.getMs_EventMap().size() );
+        assertTrue(messageBus.isMSSubscribedToEvent(microServiceEvent, exampleEvent.getClass()));
     }
 
-    @Test
-    public void testComplete() {
-        event1 = new ExampleEvent("Student1");
-        magicBus.subscribeEvent(event1.getClass() , micro1);
-        Future<String> f = magicBus.sendEvent(event1);
-//       Event e  = magicBus.awaitMessage(micro1); //here should be the event sent
-        magicBus.complete(event1, "rigush");
-        assertEquals(f.get() , "rigush");
-        magicBus.complete(event1 , "nonRigush");
-//        the second complete should do nothing?
-        assertEquals(f.get() , "rigush");
+    @org.junit.jupiter.api.Test
+    void subscribeBroadcast() {
+        //pre
+        assertTrue(messageBus.isMicroServiceRegistered(microServiceBroadcast));
+        //action
+        int size = messageBus.getMs_BroadcastMap().size();
+        messageBus.subscribeBroadcast(exampleBroadcast.getClass(), microServiceBroadcast);
+        //post
+        assertEquals(size +1,messageBus.getMs_EventMap().size() );
+        assertTrue(messageBus.isMSSubscribedToBroadcast(microServiceEvent, exampleBroadcast.getClass()));
     }
 
-    @Test
-    public void testSendBroadcast() {
-        Broadcast tick = new ExampleBroadcast("1");
-        magicBus.register(micro1);
-        magicBus.register(micro3);
-        magicBus.sendBroadcast(tick);
-        try {
-            Message m1 = magicBus.awaitMessage(micro1);
-            assertFalse( tick == m1 ); // micro1 wont receive this message because he didnt subscribed yet
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+
+    @org.junit.jupiter.api.Test
+    void complete() {
+        //PRE
+        Future<String> future = messageBus.sendEvent(exampleEvent);
+        //messageBus.subscribeEvent(exampleEvent.getClass(), microServiceEvent);
+        microServiceEvent.initialize();
+        //act
+        messageBus.complete(exampleEvent, "event");
+        //POST (event value == resolved future value)
+        if(future != null){
+            assertEquals(future.get(), "event" );
         }
-        magicBus.subscribeBroadcast(ExampleBroadcast.class, micro1);
-        magicBus.subscribeBroadcast(ExampleBroadcast.class, micro2);
-        magicBus.subscribeBroadcast(ExampleBroadcast.class, micro3);
-        try {
-            assertEquals(magicBus.awaitMessage(micro1), tick); //checks the micro1 really received the broadcast which he subscribed for
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        try {
-            assertFalse(magicBus.awaitMessage(micro2) !=  tick); //because micro2 didnt register
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        magicBus.register(micro2);
-        magicBus.subscribeBroadcast(ExampleBroadcast.class, micro2);
-        magicBus.sendBroadcast(tick);
-        try {
-            assertEquals(magicBus.awaitMessage(micro1), tick); //now micro2 is registered and subscribed so he should receive the message
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        magicBus.sendBroadcast(broadcast1);
-        try {
-            assertEquals(magicBus.awaitMessage(micro1), broadcast1); //checks the micro3 really received the broadcast which he subscribed for
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        else{
+            fail();
         }
     }
 
-    @Test
-    public void testSendEvent() {
-        magicBus.register(micro1);
-        magicBus.register(micro3);
-        magicBus.sendEvent(event1);
-
-        try {
-            Message m1 = magicBus.awaitMessage(micro1);
-            assertFalse( event1 == m1 ); // micro1 wont receive this message because he didnt subscribed yet
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+    @org.junit.jupiter.api.Test
+    void sendBroadcast() {
+        //PRE (ms subscribed, ms not)
+        messageBus.register(microServiceBroadcast);
+        messageBus.register(microServiceEvent);
+        microServiceBroadcast.initialize();
+        microServiceEvent.initialize();
+        Message subscribed_msg = null;
+        Message unsubscribed_msg = null;
+        //action
+        messageBus.subscribeBroadcast(exampleBroadcast.getClass(), microServiceBroadcast);
+        messageBus.sendBroadcast(exampleBroadcast);
+        // subscribers receive message.  unsubscribed do not
+        try{
+            subscribed_msg = messageBus.awaitMessage(microServiceBroadcast);
+            unsubscribed_msg = messageBus.awaitMessage(microServiceEvent);
         }
-        magicBus.subscribeEvent(ExampleEvent.class, micro1);
-        magicBus.subscribeEvent(ExampleEvent.class, micro2);
-        magicBus.subscribeEvent(event1.getClass(), micro3);
-        try {
-            assertEquals(magicBus.awaitMessage(micro1), event1); //checks the micro1 really received the broadcast which he subscribed for
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        catch(Exception e){
+            fail();
         }
-        try {
-            assertFalse(magicBus.awaitMessage(micro2) !=  event1); //because micro2 didnt register
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        magicBus.register(micro2);
-        magicBus.subscribeEvent(ExampleEvent.class, micro2);
-        magicBus.sendEvent(event1);
-        try {
-            assertEquals(magicBus.awaitMessage(micro1), event1); //now micro2 is registered and subscribed so he should receive the message
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-//        Event publish = new PublishResultEvent();
-        magicBus.sendEvent(event1);//was event herre, changed it
-        try {
-            assertEquals(magicBus.awaitMessage(micro1), event1); //checks the micro3 really received the broadcast which he subscribed for, was event here cahgned it
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        //POST
+        assertEquals(exampleBroadcast, subscribed_msg);
+        assertNotEquals(exampleBroadcast, unsubscribed_msg);
     }
 
-    @Test
-    public void testRegister() {
-        //1- register and see it's in the microservices
-        magicBus.register(micro1);
-        assertTrue(magicBus.isRegistered(micro1));
-        //2- if already registered - don't do anything
-        magicBus.register(micro1);
-        assertTrue(magicBus.isRegistered(micro1));
+    @org.junit.jupiter.api.Test
+    void sendEvent() {
+        messageBus.register(microServiceEvent);
+        messageBus.register(microServiceMessage);
+        Message subscribed_event = null;
+        Message unsubscribed_event = null;
+        //action
+        //messageBus.subscribeEvent(exampleEvent.getClass(), microServiceEvent);
+        messageBus.sendEvent(exampleEvent);
+        // subscribers receive event.  unsubscribed do not
+        try{
+            subscribed_event = messageBus.awaitMessage(microServiceEvent);
+            unsubscribed_event = messageBus.awaitMessage(microServiceMessage);
+        }
+        catch(Exception e){
+            fail();
+        }
+        //POST
+        assertEquals(exampleEvent, subscribed_event);
+        assertNotEquals(exampleEvent, unsubscribed_event);
+
+    }
+    //TODO: chovav
+    @org.junit.jupiter.api.Test
+    void register() {
+        messageBus.register(microServiceMessage);
+        assertTrue((messageBus.isMicroServiceRegistered(microServiceMessage)));
+        assertFalse(messageBus.isMicroServiceRegistered(microServiceBroadcast));
     }
 
-    @Test
-    public void testUnregister() {
-        //1- if microService already not registered - do nothing
-        magicBus.unregister(micro1);
-        assertFalse(magicBus.isRegistered(micro1));
+    @org.junit.jupiter.api.Test
+    void unregister() {
+        messageBus.register(microServiceMessage);
+        messageBus.register(microServiceBroadcast);
+        messageBus.unregister(microServiceMessage);
+        assertFalse(messageBus.isMicroServiceRegistered(microServiceMessage));
+        assertTrue(messageBus.isMicroServiceRegistered(microServiceBroadcast));
+    }
 
-        //2- unregister and see it's not in microservice or any list in messages
-        magicBus.register(micro1);
-        magicBus.unregister(micro1);
-        magicBus.subscribeEvent(event1.getClass(),micro1);
-        magicBus.subscribeBroadcast(broadcast1.getClass(), micro1);
-        magicBus.sendBroadcast(broadcast1);
+    @org.junit.jupiter.api.Test
+    void awaitMessage() {
+        // reg,init ms
+        messageBus.register(microServiceBroadcast);
+        microServiceBroadcast.initialize();
+        //action
+        messageBus.sendBroadcast(exampleBroadcast);
+        //check ms fetches message correctly
+        try{
+            assertEquals(messageBus.awaitMessage(microServiceBroadcast), exampleBroadcast);
+        }
+        catch(Exception e){
+            fail();
+        }
 
-        assertFalse(magicBus.isSubscribedEvent(event1.getClass(), micro1));
-        assertFalse(magicBus.isSubscribedBroadcast(broadcast1.getClass(), micro1));
-        assertFalse(magicBus.isRegistered(micro1));
 
     }
 }

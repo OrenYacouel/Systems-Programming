@@ -1,12 +1,12 @@
 package bgu.spl.mics.application.services;
 
-import bgu.spl.mics.Callback;
 import bgu.spl.mics.MicroService;
 import bgu.spl.mics.application.CRMSRunner;
 import bgu.spl.mics.application.messages.PublishConferenceBroadcast;
 import bgu.spl.mics.application.messages.PublishResultsEvent;
 import bgu.spl.mics.application.messages.TickBroadcast;
 import bgu.spl.mics.application.objects.ConfrenceInformation;
+import bgu.spl.mics.application.messages.TerminateBroadcast;
 
 /**
  * Conference service is in charge of
@@ -19,40 +19,45 @@ import bgu.spl.mics.application.objects.ConfrenceInformation;
  */
 public class ConferenceService extends MicroService {
 
-    private ConfrenceInformation conference;
-    private int ticksPassed;
+    private final ConfrenceInformation conferenceInfo;
+    private int time;
 
-
-    public ConferenceService(String name, ConfrenceInformation _conference) {
-        //      from reading the json we know the conference's name is "name"
+    public ConferenceService(String name , ConfrenceInformation _confInfo) {
         super(name);
-        ticksPassed = 1;
-        conference = _conference;
+        conferenceInfo = _confInfo;
+        this.time = 1;
     }
 
     @Override
     protected void initialize() {
-        ConferenceService me = this;
-        subscribeBroadcast(TickBroadcast.class, new Callback<TickBroadcast>() {
-            @Override
-            public void call(TickBroadcast c) {
-                ticksPassed++;
-                if(ticksPassed == conference.getPublicationDate()){ //i think that the publicationDate is in ticks not in Millisecs, Itay and Miki agreed
-                    if (conference.getGoodModels().size() > 0 ) {
-                        sendBroadcast(new PublishConferenceBroadcast(conference.getGoodModels()));
-                        magicBus.unregister(me);
-                    }
-                }
-            }
+
+        this.subscribeBroadcast(TerminateBroadcast.class, (TerminateBroadcast) -> {
+            terminate();
         });
 
-        subscribeEvent(PublishResultsEvent.class, new Callback<PublishResultsEvent>() {
-            @Override
-            public void call(PublishResultsEvent c) {
-                System.out.println("Conf recevied publishResult");
-                conference.getGoodModels().add(c.getModel());
+        subscribeBroadcast(TickBroadcast.class, (tickBroadcast) -> {
+            this.increaseTime();
+            if(this.getTime() == conferenceInfo.getDate() ){
+                this.publish();
+                this.terminate();
             }
+
         });
-        CRMSRunner.threadCount.countDown();
+        subscribeEvent(PublishResultsEvent.class ,
+                (publishResultEvent)->{
+            conferenceInfo.addToAggregatedModels(publishResultEvent.getModel());
+
+        });
+        CRMSRunner.initializeCountLatch.countDown();
+    }
+
+    private void publish(){
+        this.sendBroadcast(new PublishConferenceBroadcast(conferenceInfo.getAggregatedModels()));
+    }
+    public int getTime(){
+        return time;
+    }
+    public void increaseTime() {
+        time++;
     }
 }

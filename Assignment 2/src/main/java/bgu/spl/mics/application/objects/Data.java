@@ -5,38 +5,30 @@ package bgu.spl.mics.application.objects;
  * Add fields and methods to this class as you see fit (including public methods and constructors).
  */
 public class Data {
+
     /**
      * Enum representing the Data type.
      */
     public enum Type {
-        IMAGES, TEXT, TABULAR
+        Images, Text, Tabular
     }
+    private Type type;
+    private int size;
+    private boolean is_processed;
 
-    private Type type; // type of data, can be Images, Text, Tabular
-    private int numProcessedData; // Number of samples which the GPU has processed for training
-    private int dataSize; // number of samples in the data
-
-    public Data(Type _type, int _dataSize){
-        this.type = _type;
-        dataSize = _dataSize;
+    public Data(Type type, int size) {
+        this.type = type;
+        this.size = size;
     }
-    public int getDataSize(){return this.dataSize;}
     public Type getType() {
         return type;
     }
 
-    public void setType(Type _type){ type = _type;}
-
-    public void setDataSize(int _size){
-        dataSize = _size;
+    public int getSize() {
+        return size;
     }
 
-    public String toString(){
-        String output = "";
-
-        output += "\"type\": \"" + type + "\",\n";
-        output += "\t\t\t\t\t\t\"size\": \"" + dataSize + "\",\n";
-
-        return output;
+    public void setProcessedStatus(boolean _status){
+        is_processed = _status;
     }
 }
