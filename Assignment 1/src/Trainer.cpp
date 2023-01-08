@@ -1,166 +1,173 @@
-//
-// Created by oreny on 13/11/2021.
-//
 #include "../include/Trainer.h"
 #include <vector>
-#include <string>
-#include "iostream"
-using namespace std;
 
-Trainer:: Trainer(int t_capacity): capacity(t_capacity), open(false), orderList(std::vector<OrderPair>()), customersList(std::vector<Customer*>()){
-}//constructor
+Trainer::Trainer(int t_capacity) : capacity(t_capacity) {
+  salary = 0;
+  open = false;
+}
 
-//start of need to fix all
- Trainer:: ~Trainer(){
-    orderList.clear();
-    for (int i = 0; i < static_cast<int>(customersList.size()); i++)
-        delete customersList[i];
-    customersList.clear();
-}//destructor
+Trainer::Trainer(int t_capacity, int t_id)
+    : capacity(t_capacity), id(t_id), open(false) {
+  salary = 0;
+}
 
-Trainer::Trainer(const Trainer & other){ //copy constructor
+Trainer::~Trainer() {
+    clear();
+}
+// Copy Constructor
+Trainer::Trainer(const Trainer& other)
+    : capacity(other.getCapacity()),
+      id(other.getId()),
+      salary(other.getSalary()) {
+  copy(other);
+}
+// Copy Assignment operator
+Trainer& Trainer::operator=(const Trainer& other) {
+  if (this != &other) {
+    clear();
+    copy(other);
+  }
+  return *this;
+}
+// Move Constructor
+Trainer::Trainer(Trainer&& other)
+    : capacity(other.getCapacity()),
+      id(other.getId()),
+      salary(other.getSalary()) {
+  steal(other);
+}
+// Move Assignment
+Trainer& Trainer::operator=(Trainer&& other) {
+  if (this != &other) {
+    clear();
+    capacity = other.getCapacity();
+    id = other.getId();
+    salary = other.getSalary();
+    steal(other);
+  }
+  return *this;
+}
 
-    capacity = other.capacity;
-    open = other.open;
-    for (Customer* customer : other.customersList){
-        Customer *c = customer->clone();
-        customersList.push_back(c);
+void Trainer::copy(const Trainer& other) {
+  for (size_t index = 0; index < other.customersList.size(); index++) {
+    Customer* add_customer = (other.customersList[index])->clone();
+    customersList.push_back(add_customer);
+  }
+
+  for (size_t index = 0; index < other.orderList.size(); index++) {
+    orderList.push_back(other.orderList[index]);
+  }
+}
+
+void Trainer::steal(Trainer& other) {
+  customersList = std::vector<Customer*>();
+  for (size_t index = 0; index < other.customersList.size(); index++) {
+    Customer* add_customer = (other.customersList[index]);
+    customersList.push_back(add_customer);
+    other.customersList[index] = nullptr;
+  }
+  other.customersList.clear();
+
+  orderList = std::vector<OrderPair>();
+  for (size_t index = 0; index < other.orderList.size(); index++) {
+    orderList.push_back(other.orderList[index]);
+  }
+  other.orderList.clear();
+}
+
+void Trainer::clear() {
+  for (Customer* customer : customersList) {
+    if (customer != nullptr) {
+      delete customer;
+      customer = nullptr;
     }
-    for (OrderPair orderPair : other.orderList){
-        OrderPair pair(orderPair.first , orderPair.second);
-        this->orderList.push_back(pair);
+  }
+  customersList.clear();
+}
+
+int Trainer::getCapacity() const { return capacity; }
+
+void Trainer::upCapacity() { capacity++; }
+
+void Trainer::downCapacity() { capacity--; }
+
+int Trainer::getId() const { return id; }
+
+int Trainer::getSalary() const { return salary; }
+
+void Trainer::setSalary() {
+  int accumulator = 0;
+  for (const auto& x : orderList) {
+    // deleted customers have id of -1
+    if (x.first != -1) {
+      accumulator += (x.second.getPrice());
     }
+  }
+  salary += accumulator;
 }
 
-Trainer::Trainer(Trainer && other){ //move constructor
-    open = other.open;
-    capacity = other.capacity;
-    for(int i=0; i < static_cast<int>(customersList.size()); i++){
-        customersList[i]= other.customersList[i];
-    }
-    orderList = other.orderList;
-    std::vector<Customer*>().swap((customersList));
-    std::vector<OrderPair>().swap((orderList));
-}
-Trainer& Trainer::operator=(const Trainer& other){ //copy assignment operator
-    if(this != & other) {
-        if ( !(customersList.empty() ) ) std::vector<Customer*>().swap((customersList)); //not sure if we can delete vector this way
-        if( !(orderList.empty()) ) std::vector<OrderPair>().swap((orderList));
-        open = other.open;
-        capacity = other.capacity;
-        for (int i = 0; i < static_cast<int>(other.customersList.size()); i++)
-            customersList.push_back(other.customersList[i]);
-        for (int i = 0; i < static_cast<int>(other.orderList.size()); i++)
-            orderList.push_back(other.orderList[i]);
-    }
-    return *this;
-}
-const Trainer& Trainer:: operator=(Trainer && other){  //move assignment operator
-    if (!(customersList.empty() ) ) std::vector<Customer*>().swap((customersList));
-    if( !(orderList.empty() ) ) std::vector<OrderPair>().swap((orderList));
-    open = other.open;
-    capacity = other.capacity;
-    customersList = other.customersList;
-    orderList = other.orderList;
-    std::vector<Customer*>().swap((other.customersList));
-    std::vector<OrderPair>().swap((other.orderList));
-    return *this;
-}
+void Trainer::setStatus(bool input) { open = input; }
 
-//end of need to fix all
+bool Trainer::isOpen() { return open; }
 
-
-int Trainer:: getCapacity() const{
-    return this->capacity;
-}
 void Trainer::addCustomer(Customer* customer) {
-    if (capacity > 0){
-        customersList.push_back(customer);
-        capacity--;
-    }
-// send an error?
+  if (capacity > 0) {
+    customersList.push_back(customer);
+    downCapacity();
+  }
 }
-void Trainer::removeCustomer(int id){//we need to remove this client workout prices from the salary of this trainer
-    for(int i =0;i < static_cast<int>(customersList.size());i++){
-        if (customersList[i]->getId()== id) {
-            customersList.erase(customersList.begin() + i);
-            capacity++;
-            removeOrders(id);
+
+void Trainer::removeCustomer(int id) {
+  if (!customersList.empty() && id >= 0) {
+    for (unsigned int i = 0; i < customersList.size(); i++) {
+      if (customersList.at(i)->getId() == id) {
+          delete customersList.at(i);
+          customersList.at(i) = nullptr;
+          customersList.erase(customersList.begin() + i);
+          break;
+      }
+    }
+    for (size_t i = 0; i < orderList.size(); i++) {
+      if (orderList.at(i).first == id) {
+        orderList.at(i).first = -1;
+      }
+    }
+      upCapacity();
+  }
+}
+
+Customer* Trainer::getCustomer(int id) {
+  if (!(customersList.empty()) && id >= 0) {
+    for (size_t i = 0; i < customersList.size(); i++) {
+      if (id == customersList[i]->getId()) {
+        return customersList[i];
+      }
+    }
+  }
+  return nullptr;
+}
+
+std::vector<Customer*>& Trainer::getCustomers() { return customersList; }
+
+std::vector<OrderPair>& Trainer::getOrders() { return orderList; }
+
+void Trainer::order(const int customer_id, const std::vector<int> workout_ids,
+                    const std::vector<Workout>& workout_options) {
+    if (!open) {
+        std::cout << "Trainer does not exist or is not open" << std::endl;
+    } else {
+        for (unsigned int i=0; i<workout_ids.size(); i++) {
+            int id = workout_ids.at(i);
+            orderList.push_back(OrderPair(customer_id, workout_options.at(id)));
         }
     }
-    if (getCustomers().empty())
-        closeTrainer();
-}
-void Trainer:: removeOrders(int id){
-    std::vector<OrderPair> newOrders;
-    for(OrderPair order: orderList){
-        if (order.first != id)
-            newOrders.push_back(order);
-    }
-    orderList = newOrders;
 }
 
-
-Customer* Trainer::getCustomer(int id){
-    for(int i =0;i < static_cast<int>(customersList.size());i++){
-        if (customersList[i]->getId()== id)
-            return customersList[i];
-    }
-    //else return error? or what?
-}
+void Trainer::openTrainer() { open = true; }
 
 void Trainer::closeTrainer() {
-    open = false;
-    int newPaycheck = 0;
-    for ( int i=0; i< static_cast<int>(orderList.size()); i++){
-        newPaycheck = newPaycheck + orderList[i].second.getPrice() ;
-    }
-    salary = salary + newPaycheck;
-    for (Customer* customer : customersList) {
-        delete customer;
-    }
-    customersList.clear();
-    orderList.clear();
-}
-int Trainer::getSalary() {
-    int output=0;
-    for( int i=0; i < static_cast<int>(orderList.size()); i++){
-        output = output + orderList[i].second.getPrice();
-    }
-    return output + salary ;
-}
-
-bool Trainer::isOpen() {
-    return open;
-}
-bool Trainer:: isInSession(int costumerID){
-    for(int i=0;i < static_cast<int>(getCustomers().size());i++)
-        if (getCustomers()[i]->getId() == costumerID)
-            return true;
-    return false;
-}
-bool Trainer::hasAvailableSpot(){
-    if (getCapacity() > static_cast<int>(getOrders().size()))
-        return true;
-    return false;
-}
-
-void Trainer::order(const int customer_id, const std::vector<int> workout_ids, const std::vector<Workout> &workout_options) {
-    for (int i = 0; i < static_cast<int>(workout_ids.size()); ++i) {
-        orderList.push_back(OrderPair(customer_id,workout_options[workout_ids[i]]));
-    }
-}
-
-
-std::vector<OrderPair> &Trainer::getOrders() {
-    return orderList;
-}
-
-std::vector<Customer *> &Trainer::getCustomers() {
-    return customersList;
-}
-
-void Trainer::openTrainer() {
-    open = true;
+  open = false;
+  std::cout << "Trainer " << id << "closed. Salary " << salary << "NIS"
+            << std::endl;
 }
 

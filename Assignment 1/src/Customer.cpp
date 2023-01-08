@@ -1,178 +1,199 @@
 //
-// Created by oreny on 13/11/2021.
-//
+#include <algorithm>
 #include <string>
-#include <iostream>
-
-
+#include <vector>
 #include "../include/Customer.h"
-Customer:: Customer(std::string c_name, int c_id):id(c_id), name(c_name){} //constructor
-std::string Customer:: getName() const{
-    return name;
+
+using namespace std;
+
+// Customer
+Customer::Customer(std::string c_name, int c_id) : name(c_name), id(c_id) {}
+int Customer::getId() const { return id; }
+std::string Customer::getName() const { return name; }
+
+void Customer::pointer_swap(Workout *l, Workout *r) {
+  Workout *tmp = r;
+  r = l;
+  l = tmp;
 }
-int Customer:: getId()  const{
-    return id;
-}
-void Customer::sortWorkouts(std::vector<int> priceV, std::vector<int>idV) {
-    int n = static_cast<int>(priceV.size());
-    int key, j;
-    for (int i = 1; i < n; i++) {
-        key = priceV[i];//take value
-        j = i;
-        while (j > 0 && priceV[j - 1] > key) {
-            priceV[j] = priceV[j - 1];
-            idV[j] = idV[j - 1];
-            j--;
-        }
-        priceV[j] = key;   //insert in right place
-        idV[j] = key;
+
+// Sweaty Customer
+SweatyCustomer::SweatyCustomer(std::string cName, int cId)
+    : Customer(cName, cId) {}
+
+std::vector<int> SweatyCustomer::order(
+    const std::vector<Workout> &workout_options) {
+  std::vector<int> output;
+  for (Workout x : workout_options) {
+    if (x.getType() == CARDIO) {
+      output.push_back(x.getId());
     }
-
-    for(int i=0; i<static_cast<int>(priceV.size()); i++)
-        std::cout << priceV[i] << std::endl;
+  }
+  return output;
 }
 
-Customer::~Customer() = default;
-//Customer:: ~Customer(){ //destructor
-//    delete[] name;//not sure how to delete strings
-//}
+std::string SweatyCustomer::toString() const {
+  return std::to_string(SweatyCustomer::getId()) + " " +
+         SweatyCustomer::getName();
+}
+std::string SweatyCustomer::typeAsString() const { return "swt"; }
 
-//start of sweaty
-SweatyCustomer::SweatyCustomer(std::string name, int Id) : Customer(name, Id) {}
-std::vector<int> SweatyCustomer::order(const std::vector<Workout> &workout_options) {
-    std::vector<int> output ;
-    if( workout_options.size() != 0 ) {
-        for (size_t i = 0; i < workout_options.size(); i++) {
-            if (workout_options[i].getType() == CARDIO) {
-                output.push_back(workout_options[i].getId());
-            }
-        }
+SweatyCustomer *SweatyCustomer::clone() const { return new SweatyCustomer(*this); }
+
+// Cheap Customer
+CheapCustomer::CheapCustomer(std::string cName, int cId)
+    : Customer(cName, cId) {}
+
+std::vector<int> CheapCustomer::order(
+    const std::vector<Workout> &workout_options) {
+  // min price and min ID
+  std::vector<int> output;
+  int minPrice = workout_options[0].getPrice();
+  for (size_t i = 1; i < workout_options.size(); ++i) {
+    if (workout_options[i].getPrice() < minPrice) {
+      minPrice = workout_options[i].getPrice();
     }
-    else return output;
-}
-
-std::string SweatyCustomer::toString() const {//we can fix this easily
-    std::string output = " "+getName()+",swt";
-    return output;
-}
-
-SweatyCustomer *SweatyCustomer::clone(){
-    return new SweatyCustomer(this->getName(),this->getId());
-}
-
-SweatyCustomer::~SweatyCustomer() = default;
-//end of sweaty
-
-//start of cheap
-CheapCustomer::CheapCustomer(std::string name, int Id) : Customer(name, Id) {}
-
-CheapCustomer *CheapCustomer::clone(){
-    return new CheapCustomer(this->getName(),this->getId());
-}
-std::vector<int> CheapCustomer::order(const std::vector<Workout> &workout_options) {
-    std::vector<int> output;
-    if( workout_options.size() != 0 ) {
-        int minPrice = workout_options[0].getPrice();
-        int minWorkId = workout_options[0].getId();//we  think it will create a memory leak
-        for (size_t i = 1; i < workout_options.size(); i++) {
-            if ( workout_options[i].getPrice() < minPrice ) {
-                minWorkId = workout_options[i].getId();
-            }
-        }
-        output.push_back(minWorkId);
+  }
+  for (Workout x : workout_options) {
+    if (x.getPrice() == minPrice) {
+      output.push_back(x.getId());
+      break;
     }
-    return output; // IN THIS CASE THE FUNCTIONS SHOULD DO NOTHING , WERE NOT SURE IF TO RETURN NULL IS THE CORRECT OPTION.
+  }
+  // vector with single workout
+  return output;
 }
 
 std::string CheapCustomer::toString() const {
-    std::string output = " "+ getName()+",chp";
-    return output;
+  return std::to_string(CheapCustomer::getId()) + " " +
+         CheapCustomer::getName();
 }
 
-CheapCustomer::~CheapCustomer() = default;
+std::string CheapCustomer::typeAsString() const { return "chp"; }
 
-//end of cheap
+CheapCustomer *CheapCustomer::clone() const { return new CheapCustomer(*this); }
 
-//start of heavy
-HeavyMuscleCustomer::HeavyMuscleCustomer(std::string name, int Id) : Customer(name, Id) {}
-HeavyMuscleCustomer *HeavyMuscleCustomer::clone(){
-    return new HeavyMuscleCustomer(this->getName(),this->getId());
-}
-std::vector<int> HeavyMuscleCustomer::order(const std::vector<Workout> &workout_options) {
-    std::vector<int> idV; //vector of the id's of the workouts
-    if (workout_options.size() > 0) {
-        std::vector<Workout> toBeSorted;
-        for(size_t i=0; i<workout_options.size() && workout_options[i].getType() == ANAEROBIC; i++)
-            toBeSorted.push_back(workout_options[i]);
-        std::vector<int> pricesV; //vector of the Prices of the workouts
+// HeavyMuscle Customer
+HeavyMuscleCustomer::HeavyMuscleCustomer(std::string cName, int cId)
+    : Customer(cName, cId) {}
 
-        for (size_t i = 0; i < toBeSorted.size(); i++) //initialize the pricesV
-            pricesV.push_back(toBeSorted[i].getPrice()); //initialize the idV
-        for (size_t i = 0; i < toBeSorted.size(); i++)
-            idV.push_back(toBeSorted[i].getId());
-        int n = static_cast<int>(pricesV.size());    //this is the sorting code
-        int key, j, key1;
-        for (int i = 1; i < n; i++) {
-            key = pricesV[i];//take value
-            key1 = idV[i];
-            j = i;
-            while (j > 0 && pricesV[j - 1] > key) {
-                pricesV[j] = pricesV[j - 1];
-                idV[j] = idV[j - 1];
-                j--;
-            }
-            pricesV[j] = key;   //insert in right place
-            idV[j] = key1;
-        }
+std::vector<int> HeavyMuscleCustomer::order(
+    const std::vector<Workout>
+        &workout_options) {  // anaerobic, price max, id min
 
-        return idV;
+  std::vector<Workout> vector_order;
+  std::vector<int> output;
+  for (Workout x : workout_options) {
+    if (x.getType() == ANAEROBIC) {
+      vector_order.push_back(x);
     }
-    return idV;
+  }
+
+  struct workoutStruct {
+    bool operator()(const Workout &a, const Workout &b) const {
+      return (b.getPrice() < a.getPrice() ||
+              (b.getPrice() == a.getPrice() && b.getId() < a.getId()));
+    }
+  } workout_cmp;
+
+  std::sort(vector_order.begin(), vector_order.end(), workout_cmp);
+
+  for (auto x : vector_order) {
+    output.push_back(x.getId());
+  }
+  return output;
 }
 
 std::string HeavyMuscleCustomer::toString() const {
-    std::string output = " "+getName()+",mcl";
-    return output;
+  return std::to_string(HeavyMuscleCustomer::getId()) + " " +
+         HeavyMuscleCustomer::getName();
 }
 
-HeavyMuscleCustomer::~HeavyMuscleCustomer() = default;
-//end of heavy
+std::string HeavyMuscleCustomer::typeAsString() const { return "mcl"; }
 
-//start of full body
-FullBodyCustomer::FullBodyCustomer(std::string name, int Id) : Customer(name, Id) {}
-FullBodyCustomer *FullBodyCustomer::clone(){
-    return new FullBodyCustomer(this->getName(),this->getId());
+HeavyMuscleCustomer *HeavyMuscleCustomer::clone() const {
+  return new HeavyMuscleCustomer(*this);
 }
-//in this function we casted in the second line of "IF" and we are not sure about
-std::vector<int> FullBodyCustomer::order(const std::vector<Workout> &workout_options) {
-    std::vector<int> output;
-    if(  workout_options.size() != 0 ){
-        int  cardioId, mixedId, anaId ,chpCardio=workout_options[workout_options.size()-1].getPrice(), expMixed=workout_options[0].getPrice(), chpAna=workout_options[workout_options.size()-1].getPrice();
-        for( size_t i=0; i< workout_options.size(); i++){
-            if ( workout_options[i].getType() == CARDIO && workout_options[i].getPrice() < chpCardio ){
-                chpCardio = workout_options[i].getPrice();
-                cardioId = workout_options[i].getId();
-            }
-            if (workout_options[i].getType() == MIXED && workout_options[i].getPrice() > expMixed){
-                expMixed = workout_options[i].getPrice();
-                mixedId = workout_options[i].getId();
-            }
-            if (workout_options[i].getType() == ANAEROBIC && workout_options[i].getPrice() < chpAna){
-                chpAna = workout_options[i].getPrice();
-                anaId = workout_options[i].getId();
-            }
-        }
-        output.push_back(cardioId);
-        output.push_back(mixedId);
-        output.push_back(anaId);
+
+// FullBody Customer
+FullBodyCustomer::FullBodyCustomer(std::string cName, int cId)
+    : Customer(cName, cId) {}
+
+std::vector<int> FullBodyCustomer::order(
+    const std::vector<Workout> &workout_options) {
+  // cheap cardio, most expensive mix, cheapest anaerobic
+  std::vector<int> output;
+  std::vector<Workout> cardio_workouts;
+  std::vector<Workout> mixed_workouts;
+  std::vector<Workout> anaerobic_workouts;
+  // find cardio+cheap+min id
+  for (Workout x : workout_options) {
+    if (x.getType() == CARDIO) {
+      cardio_workouts.push_back(x);
     }
-    return output;
+  }
+  std::sort(cardio_workouts.begin(), cardio_workouts.end(),
+            [](Workout const &a, Workout const &b) {
+              return a.getPrice() < b.getPrice();
+            });
+  // ascending order
+  for (size_t i = 0; i < cardio_workouts.size() - 1; i++) {
+    if (cardio_workouts[i].getPrice() == cardio_workouts[i + 1].getPrice()) {
+      if (cardio_workouts[i + 1].getId() < cardio_workouts[i].getId()) {
+        Customer::pointer_swap(&cardio_workouts[i + 1], &cardio_workouts[i]);
+      }
+    }
+  }
+  output.push_back(cardio_workouts.at(0).getId());
+
+  for (Workout x : workout_options) {
+    if (x.getType() == MIXED) {
+      mixed_workouts.push_back(x);
+    }
+  }
+  std::sort(mixed_workouts.begin(), mixed_workouts.end(),
+            [](Workout const &a, Workout const &b) {
+              return b.getPrice() < a.getPrice();
+            });
+  // descending order
+  for (size_t i = 0; i < mixed_workouts.size() - 1; i++) {
+    if (mixed_workouts[i].getPrice() == mixed_workouts[i + 1].getPrice()) {
+      if (mixed_workouts[i + 1].getId() < mixed_workouts[i].getId()) {
+        Customer::pointer_swap(&mixed_workouts[i + 1], &mixed_workouts[i]);
+      }
+    }
+  }
+  output.push_back(mixed_workouts.at(0).getId());
+
+  for (Workout x : workout_options) {
+    if (x.getType() == ANAEROBIC) {
+      anaerobic_workouts.push_back(x);
+    }
+  }
+  std::sort(anaerobic_workouts.begin(), anaerobic_workouts.end(),
+            [](Workout const &a, Workout const &b) {
+              return a.getPrice() < b.getPrice();
+            });  // ascending order
+  for (size_t i = 0; i < anaerobic_workouts.size() - 1; i++) {
+    if (anaerobic_workouts[i].getPrice() ==
+        anaerobic_workouts[i + 1].getPrice()) {
+      if (anaerobic_workouts[i + 1].getId() < anaerobic_workouts[i].getId()) {
+        Customer::pointer_swap(&anaerobic_workouts[i + 1],
+                               &anaerobic_workouts[i]);
+      }
+    }
+  }
+  output.push_back(anaerobic_workouts.at(0).getId());
+
+  return output;
 }
 
 std::string FullBodyCustomer::toString() const {
-    std::string output = " "+getName()+",fbd";
-    return output;
+  return std::to_string(FullBodyCustomer::getId()) + " " +
+         FullBodyCustomer::getName();
 }
+std::string FullBodyCustomer::typeAsString() const { return "fbd"; }
 
-FullBodyCustomer::~FullBodyCustomer() = default;
-//end of full body
+FullBodyCustomer *FullBodyCustomer::clone() const {
+  return new FullBodyCustomer(*this);
+}
