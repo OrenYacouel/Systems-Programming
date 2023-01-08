@@ -1,0 +1,158 @@
+{
+  "students": [
+    {
+      "name": "Simba",
+      "department": "Computer Science",
+      "status": "MSc",
+      "publications": 2,
+      "papersRead": 1,
+      "trainedModels": [
+        {
+          "result": "Bad",
+          "status": "Tested",
+          "name": "YOLO10",
+          "data": {
+            "type": "Images",
+            "size": 200000,
+            "is_processed": true
+          },
+          "dataType": "Images",
+          "dataSize": 200000
+        },
+        {
+          "result": "Good",
+          "status": "Tested",
+          "name": "ResNet9000",
+          "data": {
+            "type": "Images",
+            "size": 200000,
+            "is_processed": true
+          },
+          "dataType": "Images",
+          "dataSize": 200000
+        },
+        {
+          "result": "Good",
+          "status": "Tested",
+          "name": "LessEfficientNet",
+          "data": {
+            "type": "Images",
+            "size": 20000,
+            "is_processed": true
+          },
+          "dataType": "Images",
+          "dataSize": 20000
+        }
+      ]
+    },
+    {
+      "name": "Zazu",
+      "department": "EE",
+      "status": "PhD",
+      "publications": 0,
+      "papersRead": 2,
+      "trainedModels": []
+    },
+    {
+      "name": "Pumba",
+      "department": "Computer Science",
+      "status": "PhD",
+      "publications": 2,
+      "papersRead": 1,
+      "trainedModels": [
+        {
+          "result": "Good",
+          "status": "Tested",
+          "name": "Bert",
+          "data": {
+            "type": "Text",
+            "size": 1000000,
+            "is_processed": true
+          },
+          "dataType": "Text",
+          "dataSize": 1000000
+        },
+        {
+          "result": "Good",
+          "status": "Tested",
+          "name": "GPT4",
+          "data": {
+            "type": "Text",
+            "size": 1000000,
+            "is_processed": true
+          },
+          "dataType": "Text",
+          "dataSize": 1000000
+        }
+      ]
+    },
+    {
+      "name": "Timon",
+      "department": "SE",
+      "status": "PhD",
+      "publications": 0,
+      "papersRead": 2,
+      "trainedModels": []
+    },
+    {
+      "name": "Nala",
+      "department": "Computer Science",
+      "status": "PhD",
+      "publications": 0,
+      "papersRead": 2,
+      "trainedModels": []
+    }
+  ],
+  "conferences": [
+    {
+      "name": "ICML",
+      "date": 2000,
+      "publications": [
+        {
+          "name": "Bert",
+          "data": {
+            "type": "Text",
+            "size": 1000000,
+            "is_processed": true
+          },
+          "status": "Tested",
+          "result": "Good"
+        }
+      ]
+    },
+    {
+      "name": "NeurIPS",
+      "date": 2500,
+      "publications": []
+    },
+    {
+      "name": "CVPR",
+      "date": 3000,
+      "publications": []
+    },
+    {
+      "name": "ECCV",
+      "date": 4000,
+      "publications": []
+    },
+    {
+      "name": "AISTATS",
+      "date": 5000,
+      "publications": [
+        {
+          "name": "ResNet9000",
+          "data": {
+            "type": "Images",
+            "size": 200000,
+            "is_processed": true
+          },
+          "status": "Tested",
+          "result": "Good"
+        }
+      ]
+    }
+  ],
+  "cpuTimeUsed": 332514,
+  "gpuTimeUsed": 62728,
+  "batchesProcessed": 58018
+}
